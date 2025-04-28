@@ -2,12 +2,13 @@ from ortools.sat.python import cp_model
 
 def solve_2d_loading(N, K, item_sizes, truck_info):
     model = cp_model.CpModel()
-
+    max_x = max([truck_info[k][0] for k in range(K)])  # Max width of all trucks
+    max_y = max([truck_info[k][1] for k in range(K)])  # Max height of all trucks
     # === Variables ===
     t = [model.NewIntVar(0, K - 1, f"t_{i}") for i in range(N)]        # Truck index for item i
     o = [model.NewBoolVar(f"o_{i}") for i in range(N)]                 # Orientation
-    x = [model.NewIntVar(0, 1000, f"x_{i}") for i in range(N)]         # x coordinate
-    y = [model.NewIntVar(0, 1000, f"y_{i}") for i in range(N)]         # y coordinate
+    x = [model.NewIntVar(0, max_x, f"x_{i}") for i in range(N)]         # x coordinate
+    y = [model.NewIntVar(0, max_y, f"y_{i}") for i in range(N)]         # y coordinate
     used = [model.NewBoolVar(f"used_{k}") for k in range(K)]           # Whether truck k is used
 
     # is_truck[i][k] = True if item i is in truck k
@@ -114,20 +115,37 @@ class Solution:
     def __str__(self):
         return f"Trucks: {self.trucks}, X: {self.x_coords}, Y: {self.y_coords}, Orientations: {self.orientations}, Fitness: {self.fitness}"
     
-def generate_neighbor(N, K, Solution, batch_size,item_sizes, truck_info):
+def generate_neighbor(N, K, Solution, batch_size, item_sizes, truck_info):
     import random
     import copy
 
-    copy_solution = copy.deepcopy(Solution)  # hoặc Solution.copy() nếu bạn đã định nghĩa .copy()
+    copy_solution = copy.deepcopy(Solution)  # Tạo bản sao của lời giải hiện tại
 
-    selected_trucks = random.sample(range(K), min(batch_size, K))
-    selected_items = [i for i in range(N) if Solution.trucks[i] in selected_trucks]
+    while True:  # Lặp cho đến khi chọn được sub_N < 15
+        # Chọn ngẫu nhiên một số truck để tối ưu
+        selected_trucks = random.sample(range(K), min(batch_size, K))
+        selected_items = [i for i in range(N) if Solution.trucks[i] in selected_trucks]
 
-    sub_N = len(selected_items)
+        sub_N = len(selected_items)
+        if sub_N < 15:  # Nếu thỏa mãn điều kiện, tiếp tục kiểm tra
+            # Tính tổng diện tích các item
+            sum_item_area = sum([item_sizes[i][0] * item_sizes[i][1] for i in selected_items])
+
+            # Tìm xe có diện tích nhỏ nhất
+            min_truck_area = min([truck_info[k][0] * truck_info[k][1] for k in selected_trucks])
+            total_truck_area = sum([truck_info[k][0] * truck_info[k][1] for k in selected_trucks])
+
+            # Kiểm tra nếu bỏ xe có diện tích nhỏ nhất mà tổng diện tích còn lại nhỏ hơn tổng diện tích hàng
+            if total_truck_area - min_truck_area < sum_item_area:
+                continue  # Không hợp lệ, chọn lại
+
+            break  # Nếu hợp lệ, thoát khỏi vòng lặp
+
     sub_item_sizes = [item_sizes[i] for i in selected_items]
     sub_truck_info = [truck_info[k] for k in selected_trucks]
     sub_K = len(selected_trucks)
 
+    # Thực hiện tối ưu nếu hợp lệ
     sub_t, sub_x, sub_y, sub_o = solve_2d_loading(sub_N, sub_K, sub_item_sizes, sub_truck_info)
 
     for i, item in enumerate(selected_items):
@@ -135,7 +153,9 @@ def generate_neighbor(N, K, Solution, batch_size,item_sizes, truck_info):
         copy_solution.x_coords[item] = sub_x[i]
         copy_solution.y_coords[item] = sub_y[i]
         copy_solution.orientations[item] = sub_o[i]
-        copy_solution.fitness = sum(truck_info[k][2] for k in set(copy_solution.trucks))  # Cập nhật chi phí dựa trên các xe tải đã sử dụng
+
+    # Cập nhật fitness
+    copy_solution.fitness = sum(truck_info[k][2] for k in set(copy_solution.trucks))  # Cập nhật chi phí dựa trên các xe tải đã sử dụng
 
     return copy_solution
 
@@ -186,22 +206,161 @@ def generate_initial_solution_greedy(N, K, item_sizes, truck_info):
 
     return Solution(trucks, x_coords, y_coords, orientations, [truck_info[k][2] for k in range(K)])
 
-        
+def Tabu_Search(N, K, item_sizes, truck_info, max_iterations=200, tabu_tenure=10):
+    import copy
+
+    # Khởi tạo lời giải ban đầu
+    current_solution = generate_initial_solution_greedy(N, K, item_sizes, truck_info)
+    best_solution = copy.deepcopy(current_solution)
+
+    # Danh sách tabu
+    tabu_list = []
+
+    # Bắt đầu vòng lặp Tabu Search
+    for iteration in range(max_iterations):
+        print(f"Iteration {iteration + 1}/{max_iterations}")
+
+        # Sinh hàng xóm
+        neighbors = []
+        for _ in range(10):  # Tạo tối đa 10 hàng xóm
+            neighbor = generate_neighbor(N, K, current_solution, 7, item_sizes, truck_info)
+            if neighbor not in tabu_list:
+                neighbors.append(neighbor)
+
+        # Nếu không có hàng xóm hợp lệ, dừng thuật toán
+        if not neighbors:
+            print("No valid neighbors found. Stopping.")
+            break
+
+        # Chọn hàng xóm tốt nhất
+        best_neighbor = min(neighbors, key=lambda sol: sol.fitness)
+
+        # Cập nhật danh sách tabu
+        tabu_list.append(copy.deepcopy(current_solution))
+        if len(tabu_list) > tabu_tenure:
+            tabu_list.pop(0)
+
+        # Cập nhật lời giải hiện tại
+        current_solution = best_neighbor
+
+        # Cập nhật lời giải tốt nhất nếu cần
+        if current_solution.fitness < best_solution.fitness:
+            best_solution = copy.deepcopy(current_solution)
+
+        print(f"Current best fitness: {best_solution.fitness}")
+        result_path = pathlib.Path(__file__).parent / "Result"/ "test10.txt"
+        with open(result_path, "w") as result_file:
+            for i in range(N):
+                result_file.write(f"{i+1} {best_solution.trucks[i] + 1} {best_solution.x_coords[i]} {best_solution.y_coords[i]} {best_solution.orientations[i]}\n")
+            result_file.write(f"Total cost: {best_solution.fitness}\n")
+
+    return best_solution
+def Tabu__Search_With_Start_Solution(N, K, item_sizes, truck_info, start_solution, max_iterations=200, tabu_tenure=10):
+    import copy
+
+    # Khởi tạo lời giải ban đầu
+    current_solution = start_solution
+    best_solution = copy.deepcopy(current_solution)
+
+    # Danh sách tabu
+    tabu_list = []
+
+    # Bắt đầu vòng lặp Tabu Search
+    for iteration in range(max_iterations):
+        print(f"Iteration {iteration + 1}/{max_iterations}")
+
+        # Sinh hàng xóm
+        neighbors = []
+        for _ in range(10):  # Tạo tối đa 10 hàng xóm
+            neighbor = generate_neighbor(N, K, current_solution, 5, item_sizes, truck_info)
+            if neighbor not in tabu_list:
+                neighbors.append(neighbor)
+
+        # Nếu không có hàng xóm hợp lệ, dừng thuật toán
+        if not neighbors:
+            print("No valid neighbors found. Stopping.")
+            break
+
+        # Chọn hàng xóm tốt nhất
+        best_neighbor = min(neighbors, key=lambda sol: sol.fitness)
+
+        # Cập nhật danh sách tabu
+        tabu_list.append(copy.deepcopy(current_solution))
+        if len(tabu_list) > tabu_tenure:
+            tabu_list.pop(0)
+
+        # Cập nhật lời giải hiện tại
+        current_solution = best_neighbor
+
+        # Cập nhật lời giải tốt nhất nếu cần
+        if current_solution.fitness < best_solution.fitness:
+            best_solution = copy.deepcopy(current_solution)
+
+        print(f"Current best fitness: {best_solution.fitness}")
+        result_path = pathlib.Path(__file__).parent / "Result"/ "test10.txt"
+        with open(result_path, "w") as result_file:
+            for i in range(N):
+                result_file.write(f"{i+1} {best_solution.trucks[i] + 1} {best_solution.x_coords[i]} {best_solution.y_coords[i]} {best_solution.orientations[i]}\n")
+            result_file.write(f"Total cost: {best_solution.fitness}\n")
+
+    return best_solution
+
+def get_start_solution_from_file(file_path,truck_info):
+    trucks = []
+    x_coords = []
+    y_coords = []
+    orientations = []
+    cost_truck = [truck[2] for truck in truck_info]  # Chi phí của từng xe tải
+
+    with open(file_path, "r") as file:
+        lines = file.readlines()
+        for line in lines:
+            line = line.strip()  # Loại bỏ khoảng trắng ở đầu và cuối dòng
+            if not line:  # Bỏ qua dòng trống
+                continue
+            if line.startswith("Total cost:"):
+                # Đọc tổng chi phí từ dòng cuối
+                total_cost = int(line.split(":")[1].strip())
+            else:
+                # Đọc thông tin từng item
+                parts = line.split()
+                if len(parts) != 5:  # Kiểm tra nếu dòng không có đúng 5 phần tử
+                    print(f"⚠️ Warning: Invalid line format: {line}")
+                    continue
+                try:
+                    item_id = int(parts[0])  # ID của item (không cần sử dụng)
+                    truck = int(parts[1]) - 1  # Truck index (giảm 1 để phù hợp với index 0-based)
+                    x = int(parts[2])  # Tọa độ x
+                    y = int(parts[3])  # Tọa độ y
+                    orientation = int(parts[4])  # Orientation (0 hoặc 1)
+
+                    trucks.append(truck)
+                    x_coords.append(x)
+                    y_coords.append(y)
+                    orientations.append(orientation)
+                except ValueError as e:
+                    print(f"⚠️ Warning: Unable to parse line: {line}. Error: {e}")
+                    continue
+    print(trucks, x_coords, y_coords, orientations)
+    # Tạo đối tượng Solution
+    return Solution(trucks, x_coords, y_coords, orientations, cost_truck)
 
 import sys
 import pathlib
 
 if __name__ == "__main__":
     parent_dir = pathlib.Path(__file__).parent.parent.resolve()
-    testcase_path = parent_dir / "testcase" / "test1.txt"
+    re_path = pathlib.Path(__file__).parent / "Result"/ "test10.txt"
+    testcase_path = parent_dir / "testcase" / "test10.txt"
     sys.stdin = open(testcase_path, "r")
     N, K = map(int, input().split())
     item_sizes = [tuple(map(int, input().split())) for _ in range(N)]
     truck_info = [tuple(map(int, input().split())) for _ in range(K)]
-    solution = generate_initial_solution_greedy(N, K, item_sizes, truck_info)
-    print(solution)
-    neigbor = generate_neighbor(N, K, solution, 10, item_sizes, truck_info)
 
-    print("Neighbor solution:")
-    print(neigbor)
+    star_solution = get_start_solution_from_file(re_path,truck_info)
 
+    # optimized_solution = Tabu_Search(N, K, item_sizes, truck_info, max_iterations=200, tabu_tenure=10)
+    optimized_solution = Tabu__Search_With_Start_Solution(N, K, item_sizes, truck_info, star_solution, max_iterations=20000, tabu_tenure=10)
+    # for i in range(N):
+    #     print(i+1, optimized_solution.trucks[i] + 1, optimized_solution.x_coords[i], optimized_solution.y_coords[i], optimized_solution.orientations[i])
+    # print("Total cost:", optimized_solution.fitness)
