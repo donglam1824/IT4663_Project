@@ -4,25 +4,28 @@ from ortools.sat.python import cp_model
 
 
 def process_test_case(data, time_limit):
-    N = data['N']
-    K = data['K']
-    items = data['items']
-    trucks = data['trucks']
+    #Khởi tạo mô hình
+    N = data['N']    # Số lượng vật
+    K = data['K']    # Số lượng xe tải
+    items = data['items']    # Danh sách các vật (chiều rộng, chiều cao)
+    trucks = data['trucks']  # Danh sách các xe tải (chiều rộng, chiều cao, chi phí)
 
     max_width = max(x[0] for x in trucks)
     max_height = max(x[1] for x in trucks)
 
     model = cp_model.CpModel()
 
-    X = {}
-    R = []
+    X = {}    # X[i, j] = 1 nếu vật i được xếp vào xe tải j
+    R = []    # R[i] = 1 nếu vật i được xoay
     for i in range(N):
         R.append(model.NewBoolVar(f'item_{i}_rotated'))
         for j in range(K):
             X[i, j] = model.NewBoolVar(f'item_{i}_in_truck_{j}')
 
+    # Z[j] = 1 nếu xe tải j được sử dụng
     Z = [model.NewBoolVar(f'truck_{j}_is_used') for j in range(K)]
 
+    # Các biến để lưu trữ tọa độ của vật
     r = []
     l = []
     t = []
@@ -38,14 +41,17 @@ def process_test_case(data, time_limit):
         model.Add(t[i] == b[i] + items[i][1]).OnlyEnforceIf(R[i].Not())
         model.Add(t[i] == b[i] + items[i][0]).OnlyEnforceIf(R[i])
 
+    # Ràng buộc mỗi vật chỉ có thể được xếp vào một xe tải
     for i in range(N):
         model.Add(sum(X[i, j] for j in range(K)) == 1)
 
+    # Ràng buộc vật nằm trong giới hạn của xe tải
     for i in range(N):
         for j in range(K):
             model.Add(r[i] <= trucks[j][0]).OnlyEnforceIf(X[i, j])
             model.Add(t[i] <= trucks[j][1]).OnlyEnforceIf(X[i, j])
 
+    # Ràng buộc không cho phép vật chồng lên nhau
     for i in range(N):
         for k in range(i + 1, N):
             a1 = model.NewBoolVar(f'a1_{i}_{k}')
@@ -64,12 +70,15 @@ def process_test_case(data, time_limit):
             for j in range(K):
                 model.AddBoolOr([a1, a2, a3, a4]).OnlyEnforceIf([X[i, j], X[k, j]])
 
+    # Ràng buộc xe j được sử dụng nếu có vật được xếp vào nó
     for j in range(K):
         model.AddMaxEquality(Z[j], [X[i, j] for i in range(N)])
 
+    # Hàm mục tiêu
     cost = sum(Z[j] * trucks[j][2] for j in range(K))
     model.Minimize(cost)
 
+    # Giải
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
 
@@ -99,13 +108,13 @@ def process_test_case(data, time_limit):
 
 
 def main():
-    print("Nhập số lượng vật và xe tải (N K):")
+    #Nhập số lượng vật và xe tải N và K
     N, K = map(int, input().split())
 
-    print("Nhập thông tin N vật (mỗi dòng: width height):")
+    #Nhập thông tin N vật
     items = [tuple(map(int, input().split())) for _ in range(N)]
 
-    print("Nhập thông tin K xe tải (mỗi dòng: width height cost):")
+    #Nhập thông tin K xe tải
     trucks = [tuple(map(int, input().split())) for _ in range(K)]
 
     data = {
