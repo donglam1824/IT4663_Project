@@ -1,6 +1,7 @@
+#PYTHON 
 from ortools.linear_solver import pywraplp
 
-def input():
+def test_input():
     data = {}
 
     # n items, k trucks
@@ -26,14 +27,14 @@ def input():
 
 def solve():
 
-    n, k, data, W_truck, H_truck = input()
+    n, k, data, W_truck, H_truck = test_input()
 
     size_item = data['size_item']
     size_truck = data['size_truck']
     cost = data['cost']
     
     solver = pywraplp.Solver.CreateSolver('SCIP')
-    if not solve:
+    if not solver:
         return None
     
     
@@ -62,7 +63,7 @@ def solve():
     o = {}
 
     for i in range(n):
-        o[i] = solver.IntVar(0, 1000, f'o_{i}')   
+        o[i] = solver.IntVar(0, 1, f'o_{i}')   
 
     #Bien phu
     #Mon hang i co o ben trai/phai/duoi/tren mon hang j khong
@@ -108,7 +109,7 @@ def solve():
 
             # Rang buoc ve chieu rong
 
-            solver.Add(y[i] + w_i * o[i] + h_i * (1 - o[i]) <= H_j + (1 - t[i][j] * big_M))
+            solver.Add(y[i] + w_i * o[i] + h_i * (1 - o[i]) <= H_j + (1 - t[i][j]) * big_M)
 
     # Hang khong duoc chong len nhau neu o cung xe
     for i in range(n):
@@ -130,10 +131,10 @@ def solve():
                 solver.Add(x[j] + w_j * (1 - o[j]) + h_j * o[j] <= x[i] + (1 - right[(i, j)]) * big_M)
 
                 # i nam duoi j
-                solver.Add(y[i] + h_i * (1 - o[i]) + w_i * o[i] <= x[j] + (1 - below[(i, j)]) * big_M)
+                solver.Add(y[i] + h_i * (1 - o[i]) + w_i * o[i] <= y[j] + (1 - below[(i, j)]) * big_M)
 
                 # i nam tren j
-                solver.Add(y[j] + h_j * (1 - o[j]) + w_j * o[j] <= x[i] + (1 - above[(i, j)]) * big_M)
+                solver.Add(y[j] + h_j * (1 - o[j]) + w_j * o[j] <= y[i] + (1 - above[(i, j)]) * big_M)
 
                 # Neu cung xe tai thi thoa man it nhat 1 trong 4 dieu kien
                 solver.Add(left[(i, j)] + right[(i, j)] + below[(i, j)] + above[(i, j)] >= same_truck)
@@ -143,11 +144,11 @@ def solve():
         objective.SetCoefficient(u[j], cost[j])
     objective.SetMinimization()
 
-    print("Solving...")
+    # print("Solving...")
     status = solver.Solve()
 
     if status == pywraplp.Solver.OPTIMAL:
-        print(f"Tổng chi phí tối ưu: {solver.Objective().Value()}")
+        # print(f"Tổng chi phí tối ưu: {solver.Objective().Value()}")
 
         result = []
         for i in range(n):  
@@ -159,13 +160,13 @@ def solve():
 
             result.append((
                 i + 1,                  # i
-                truck_assigned + 1,     # t[i]
+                truck_assigned + 1,     # t[i] (đánh số từ 1)
                 int(x[i].solution_value()),
                 int(y[i].solution_value()),
                 int(o[i].solution_value())
             ))
 
-            print(f"{i+1} {truck_assigned} {int(x[i].solution_value())} {int(y[i].solution_value())} {int(o[i].solution_value())}")
+            print(f"{i+1} {truck_assigned + 1} {int(x[i].solution_value())} {int(y[i].solution_value())} {int(o[i].solution_value())}")
 
         return result
 
